@@ -8,7 +8,7 @@ from datetime import datetime
 
 # Rutas y variables de configuración
 USER = os.getenv("USER")
-BASE_DIR = f"/var/home/{USER}/.local/share/applications/bambu-control"
+BASE_DIR = f"/var/home/{USER}/.local/share/applications/treeos-control"
 CONFIG_FILE = os.path.join(BASE_DIR, "update_config.conf")
 MANUAL_FILE = os.path.join(BASE_DIR, "treeosmanual.pdf")
 LATEST_RELEASE_FILE = os.path.join(BASE_DIR, "latest-release")
