@@ -2,7 +2,7 @@
 Name=TreeOS Control
 Comment=Panel de Control de TreeOS
 Exec=sh -c "python3 $HOME/.local/share/applications/treeos-control/treeos-control.py"
-Icon=$HOME/.local/share/applications/treeos-control/logo.gif
+Icon=TEMPATH/.local/share/applications/treeos-control/logo.gif
 Terminal=false
 Type=Application
 Categories=Utility;
