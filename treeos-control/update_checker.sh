@@ -8,7 +8,7 @@
 
 # Rutas y directorios
 USER=$(whoami)
-CONFIG_DIR="/var/home/${USER}/.local/share/applications/bambu-control"
+CONFIG_DIR="/var/home/${USER}/.local/share/applications/treeos-control"
 CONFIG_FILE="${CONFIG_DIR}/update_config.conf"
 LATEST_RELEASE_FILE="${CONFIG_DIR}/latest-release"
 
