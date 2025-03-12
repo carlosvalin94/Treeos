@@ -78,6 +78,57 @@ class SystemConfigurator:
             # Ignore errors and continue
             pass
 
+    @staticmethod
+    def create_profile_d_script():
+        """
+        Crea el archivo /etc/profile.d/treeos_init.sh con permisos de ejecución,
+        que clona/actualiza el repo y lanza el update_checker.sh en segundo plano (si no está corriendo).
+        """
+        script_content = r"""#!/bin/bash
+
+# Si esta variable ya está definida, significa que el script ya corrió en esta sesión
+if [[ -n "$TREEOS_UPDATE_DONE" ]]; then
+  return 0
+fi
+
+# Definimos la variable para que no se ejecute más veces en esta sesión
+export TREEOS_UPDATE_DONE=1
+
+# -- 1) Lógica para clonar/actualizar Treeos --
+if [ ! -d "$HOME/.local/share/applications/.git" ]; then
+  git clone https://github.com/carlosvalin94/Treeos.git "$HOME/.local/share/applications/"
+else
+  cd "$HOME/.local/share/applications" || exit
+  git fetch --all
+  git reset --hard origin/main
+fi
+
+# Ajustar la ruta del icono en el archivo .desktop
+sed -i "s|Icon=TEMPATH.*|Icon=$HOME/.local/share/applications/treeos-control/logo.gif|" \
+  "$HOME/.local/share/applications/treeos-control.desktop"
+
+# -- 2) Verificar si ya existe un 'update_checker.sh' corriendo para este usuario --
+if pgrep -u "$USER" -f "update_checker.sh" >/dev/null 2>&1; then
+  echo "update_checker.sh ya está corriendo para el usuario $USER."
+  return 0
+fi
+
+# -- 3) Si no está corriendo, lo lanzamos en 2º plano con nohup --
+nohup "$HOME/.local/share/applications/treeos-control/update_checker.sh" \
+  >/dev/null 2>&1 &
+
+"""
+
+        # 1. Escribir el contenido en /etc/profile.d/treeos_init.sh
+        subprocess.run([
+            "sudo", "bash", "-c", 
+            f"cat << 'EOF' > /etc/profile.d/treeos_init.sh\n{script_content}\nEOF"
+        ], check=True)
+
+        # 2. Dar permisos de ejecución
+        subprocess.run(["sudo", "chmod", "+x", "/etc/profile.d/treeos_init.sh"], check=True)
+
+
 class SetupWindow(Gtk.Window):
     def __init__(self, app):
         super().__init__(title="TreeOS - Configuración Inicial", application=app)
@@ -242,6 +293,14 @@ class SetupWindow(Gtk.Window):
             self._show_error_dialog(str(e))
 
     def _apply_configuration(self):
+        """
+        Se llama cuando el usuario confirma la configuración:
+        - Crea el usuario
+        - Configura idioma/teclado
+        - Quita usuario temporal
+        - Crea /etc/profile.d/treeos_init.sh
+        - Inicia cuenta regresiva para reiniciar
+        """
         try:
             username = self.username_entry.get_text().strip()
             lang_index = self.language_dropdown.get_selected()
@@ -250,10 +309,16 @@ class SetupWindow(Gtk.Window):
             locale = self.locale_map[lang_index]
             keyboard_layout = self.keyboard_map[keyboard_index]
 
+            # 1) Crear usuario
             SystemConfigurator.create_user(username)
+            # 2) Configurar localización
             SystemConfigurator.configure_localization(locale, keyboard_layout)
+            # 3) Eliminar el usuario temporal 'bubu'
             SystemConfigurator.remove_temp_user()
+            # 4) Crear /etc/profile.d/treeos_init.sh
+            SystemConfigurator.create_profile_d_script()
             
+            # 5) Mostrar cuenta regresiva y reiniciar
             self._show_restart_countdown()
 
         except subprocess.CalledProcessError as e:
