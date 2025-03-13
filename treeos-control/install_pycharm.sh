@@ -9,5 +9,5 @@ sudo dnf install -y python3-tkinter pycharm-community libXtst xorg-x11-server-Xv
 # Crear el archivo de inicio para PyCharm
 echo -e "[Desktop Entry]\nName=PyCharm (Toolbox)\nComment=IDE for Python Development\nExec=toolbox run --container treeossecure pycharm-community\nIcon=pycharm\nTerminal=false\nType=Application\nCategories=Development;IDE;" | tee ~/.local/share/applications/pycharm-treeossecure.desktop
 
-# Agregar permisos de ejecuci�n
+# Agregar permisos de ejecuci\ufffdn
 chmod +x ~/.local/share/applications/pycharm-treeossecure.desktop
