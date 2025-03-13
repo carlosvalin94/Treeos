@@ -678,7 +678,9 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
             modal=True,
             message_type=Gtk.MessageType.WARNING,
             buttons=Gtk.ButtonsType.OK_CANCEL,
-            text="�Est�s seguro que desea restaurar TreeOS Secure?\nEsto eliminar� el contenedor toolbox 'treeossecure'."
+            text=("�Est�s seguro que desea restaurar TreeOS Secure?\n"
+                  "Esto eliminar� el contenedor toolbox 'treeossecure', todas las aplicaciones de TreeOS Secure "
+                  "y los iconos de PyCharm, VS Code y Anaconda.")
         )
         dialog.connect("response", self.on_restore_response)
         dialog.present()
@@ -693,6 +695,19 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
                     result = subprocess.run("toolbox rm -f treeossecure", shell=True, capture_output=True, text=True)
                     if result.returncode == 0:
                         self.append_secure_details_text("TreeOS Secure ha sido restaurado (toolbox eliminado).")
+                        # Se eliminan los iconos de las aplicaciones (archivos .desktop)
+                        for app_key, data in APPS_DESKTOP.items():
+                            desktop_path = os.path.expanduser(f"~/.local/share/applications/{data['desktop_file']}")
+                            if os.path.exists(desktop_path):
+                                try:
+                                    os.remove(desktop_path)
+                                    self.append_secure_details_text(f"Icono para {data['name']} eliminado.")
+                                except Exception as e:
+                                    self.append_secure_details_text(f"Error eliminando icono para {data['name']}: {e}")
+                        # Actualizar el estado de los botones para que muestren "Instalar"
+                        GLib.idle_add(self.update_app_button_label, "pycharm")
+                        GLib.idle_add(self.update_app_button_label, "vscode")
+                        GLib.idle_add(self.update_app_button_label, "anaconda")
                     else:
                         self.append_secure_details_text(f"Error al restaurar TreeOS Secure: {result.stderr}")
             except subprocess.CalledProcessError as e:
