@@ -3,7 +3,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gtk, GLib, GdkPixbuf
-import subprocess, os, threading, sys, fcntl
+import subprocess, os, threading, sys, fcntl, re
 from datetime import datetime
 
 # ========================================
@@ -35,18 +35,21 @@ DEFAULT_CONFIG = {
     "STORED_VERSION": ""
 }
 
-# Diccionario de apps para .desktop
+# Diccionario de apps para .desktop con rutas actualizadas:
+# ~/.local/share/applications/anaconda-treeossecure.desktop
+# ~/.local/share/applications/pycharm-treeossecure.desktop
+# ~/.local/share/applications/vscode-treeossecure.desktop
 APPS_DESKTOP = {
     "pycharm": {
         "package": "pycharm-community",
-        "desktop_file": "pycharm-toolbox.desktop",
+        "desktop_file": "pycharm-treeossecure.desktop",
         "name": "PyCharm (Toolbox)",
         "comment": "IDE for Python Development",
         "icon": "pycharm"
     },
     "vscode": {
         "package": "code",
-        "desktop_file": "vscode-toolbox.desktop",
+        "desktop_file": "vscode-treeossecure.desktop",
         "name": "VS Code (Toolbox)",
         "comment": "Code Editor",
         "icon": "code"
@@ -138,40 +141,53 @@ def ejecutar_comando_captura(comando, callback_line=None):
 def apply_updates_py(callback_line):
     return ejecutar_comando_captura("rpm-ostree upgrade", callback_line)
 
+# Funci�n actualizada para el rebase:
 def check_silverblue_version_py(callback_line):
     if os.path.isfile(LATEST_RELEASE_FILE):
         with open(LATEST_RELEASE_FILE) as f:
-            latest_version = f.read().strip()
+            latest_release = f.read().strip()
     else:
-        latest_version = ""
+        latest_release = ""
+    
+    # Intentamos extraer un n�mero de versi�n (por ejemplo, "41") usando regex.
+    extracted_version = None
+    if latest_release:
+        m = re.search(r'/(\d+)/', latest_release)
+        if m:
+            extracted_version = m.group(1)
+    
+    # Obtener la versi�n actual del sistema desde /etc/os-release.
+    current_version = ""
+    try:
+        with open("/etc/os-release") as f:
+            for line in f:
+                if line.startswith("VERSION_ID="):
+                    current_version = line.split("=")[1].strip().strip('"')
+                    break
+    except Exception as e:
+        callback_line(f"Error al obtener la versi�n actual de Fedora: {e}")
+    
     config = read_config()
     stored_version = config.get("STORED_VERSION", "").strip()
-    if latest_version and latest_version != stored_version:
-        callback_line(f"Aplicando rebase a la versi�n: {latest_version}")
-        rcode = ejecutar_comando_captura(f"rpm-ostree rebase {latest_version}", callback_line)
+    
+    # Se procede con el rebase solo si:
+    # 1. latest_release existe y es distinta a stored_version.
+    # 2. Si se pudo extraer un n�mero de versi�n y �ste coincide con current_version, NO se hace rebase.
+    # 3. Si no se pudo extraer un n�mero (imagen personalizada) o el n�mero extra�do es distinto, se hace rebase.
+    if latest_release and latest_release != stored_version:
+        if extracted_version is not None:
+            if extracted_version == current_version:
+                callback_line("No hay nuevas versiones de Silverblue disponibles.")
+                return
+        callback_line(f"Aplicando rebase a la imagen: {latest_release}")
+        rcode = ejecutar_comando_captura(f"rpm-ostree rebase {latest_release}", callback_line)
         if rcode == 0:
-            callback_line(f"Rebase completado a la versi�n: {latest_version}")
-            write_config(stored_version=latest_version)
+            callback_line(f"Rebase completado a la imagen: {latest_release}")
+            write_config(stored_version=latest_release)
         else:
-            callback_line(f"Error al aplicar rebase a {latest_version}.")
+            callback_line(f"Error al aplicar rebase a {latest_release}.")
     else:
         callback_line("No hay nuevas versiones de Silverblue disponibles.")
-
-def crear_desktop_app(app_key):
-    data = APPS_DESKTOP[app_key]
-    desktop_path = os.path.expanduser(f"~/.local/share/applications/{data['desktop_file']}")
-    content = (
-        f"[Desktop Entry]\n"
-        f"Name={data['name']}\n"
-        f"Comment={data['comment']}\n"
-        f"Exec=toolbox run --container treeossecure {data['package']} %F\n"
-        f"Icon={data['icon']}\n"
-        f"Terminal=false\n"
-        f"Type=Application\n"
-        f"Categories=Development;IDE;\n"
-    )
-    comando = f'echo -e "{content}" | tee {desktop_path} && chmod +x {desktop_path}'
-    return comando
 
 def ensure_toolbox_exists(callback_line=None):
     try:
@@ -440,10 +456,10 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         self.img_complete.set_visible(False)
         self.clear_details_text()
         self.append_details_text("Iniciando actualizaci�n manual...")
-        t = threading.Thread(target=self.procesar_actualizacion, daemon=True)
+        t = threading.Thread(target=self.procesar_actualacion, daemon=True)
         t.start()
 
-    def procesar_actualizacion(self):
+    def procesar_actualacion(self):
         try:
             apply_updates_py(self.append_details_text)
             check_silverblue_version_py(self.append_details_text)
@@ -628,8 +644,8 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
             self.append_secure_details_text(f"Iniciando instalaci�n de {APPS_DESKTOP[app_key]['name']}...")
             ejecutar_comando_captura(install_cmd, self.append_secure_details_text)
             self.append_secure_details_text(f"Instalaci�n de {APPS_DESKTOP[app_key]['name']} completada.")
-            if not is_app_installed(app_key):
-                subprocess.run(crear_desktop_app(app_key), shell=True)
+            # NOTA: Se elimina la creaci�n del archivo .desktop desde Python,
+            # ya que el script .sh correspondiente lo crea con el icono adecuado.
         else:
             self.append_secure_details_text("Error: no se defini� comando para instalar la app.")
         GLib.idle_add(self.mostrar_secure_imagen_completa)
@@ -662,7 +678,7 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
             modal=True,
             message_type=Gtk.MessageType.WARNING,
             buttons=Gtk.ButtonsType.OK_CANCEL,
-            text="�Est� seguro que desea restaurar TreeOS Secure?\nEsto eliminar� el contenedor toolbox 'treeossecure'."
+            text="�Est�s seguro que desea restaurar TreeOS Secure?\nEsto eliminar� el contenedor toolbox 'treeossecure'."
         )
         dialog.connect("response", self.on_restore_response)
         dialog.present()
