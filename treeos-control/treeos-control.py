@@ -3,7 +3,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gtk, GLib, GdkPixbuf
-import subprocess, os, threading
+import subprocess, os, threading, sys, fcntl
 from datetime import datetime
 
 # ========================================
@@ -15,8 +15,8 @@ CONFIG_FILE = os.path.join(BASE_DIR, "update_config.conf")
 MANUAL_FILE = os.path.join(BASE_DIR, "treeosmanual.pdf")
 LATEST_RELEASE_FILE = os.path.join(BASE_DIR, "latest-release")
 
-# Aseg�rate de que tengas un archivo "logo.png" en BASE_DIR
-APP_ICON = os.path.join(BASE_DIR, "logo.png")
+# Usamos logo.gif en lugar de logo.png
+APP_ICON = os.path.join(BASE_DIR, "logo.gif")
 
 WINDOW_WIDTH = 750
 WINDOW_HEIGHT = 600
@@ -24,7 +24,7 @@ SMALL_IMAGE_SIZE = 150
 WALLPAPER_IMAGE_SIZE = 150
 MARGIN = 10
 
-LOCK_FILE = "/tmp/treeos_update.lock"
+LOCK_FILE = "/tmp/treeos_update.lock"  # usado para actualizaciones
 
 DEFAULT_CONFIG = {
     "AUTO_UPDATES_ENABLED": True,
@@ -53,12 +53,20 @@ APPS_DESKTOP = {
     },
     "anaconda": {
         "package": "anaconda",
-        "desktop_file": "anaconda-toolbox.desktop",
+        "desktop_file": "anaconda-treeossecure.desktop",
         "name": "Anaconda (Toolbox)",
         "comment": "Python Distribution",
         "icon": "anaconda"
     }
 }
+
+# ----------------------------------------
+# Funci�n auxiliar para detectar instalaci�n
+# ----------------------------------------
+def is_app_installed(app_key):
+    data = APPS_DESKTOP[app_key]
+    desktop_path = os.path.expanduser(f"~/.local/share/applications/{data['desktop_file']}")
+    return os.path.exists(desktop_path)
 
 # ========================================
 # FUNCIONES DE CONFIGURACI�N
@@ -89,7 +97,6 @@ def write_config(auto_updates_enabled=None, check_frequency=None, extensiones_ha
                  first_boot=None, last_update_check=None, stored_version=None):
     def sed_replace(key, val):
         return f"sed -i 's|^{key}=.*|{key}={val}|' {CONFIG_FILE}"
-
     if not os.path.isfile(CONFIG_FILE) or os.path.getsize(CONFIG_FILE) == 0:
         with open(CONFIG_FILE, 'w') as f:
             f.write(f"AUTO_UPDATES_ENABLED={str(auto_updates_enabled if auto_updates_enabled is not None else DEFAULT_CONFIG['AUTO_UPDATES_ENABLED']).lower()}\n")
@@ -97,10 +104,9 @@ def write_config(auto_updates_enabled=None, check_frequency=None, extensiones_ha
             f.write(f"EXTENSIONES_HABILITADAS={str(extensiones_habilitadas if extensiones_habilitadas is not None else DEFAULT_CONFIG['EXTENSIONES_HABILITADAS']).lower()}\n")
             f.write(f"FIRST_BOOT={str(first_boot if first_boot is not None else DEFAULT_CONFIG['FIRST_BOOT']).lower()}\n")
             f.write(f"LAST_UPDATE_CHECK={last_update_check if last_update_check is not None else DEFAULT_CONFIG['LAST_UPDATE_CHECK']}\n")
-            f.write(f"STORED_VERSION={stored_version if stored_version is not None else DEFAULT_CONFIG['STORED_VERSION']}\n")
+            f.write(f"STORED_VERSION={stored_version.strip() if stored_version is not None else DEFAULT_CONFIG['STORED_VERSION']}\n")
         print("Archivo de configuraci�n creado con valores por defecto.")
         return
-
     if auto_updates_enabled is not None:
         subprocess.run(sed_replace("AUTO_UPDATES_ENABLED", str(auto_updates_enabled).lower()), shell=True)
     if check_frequency is not None:
@@ -112,7 +118,7 @@ def write_config(auto_updates_enabled=None, check_frequency=None, extensiones_ha
     if last_update_check is not None:
         subprocess.run(sed_replace("LAST_UPDATE_CHECK", str(last_update_check)), shell=True)
     if stored_version is not None:
-        subprocess.run(sed_replace("STORED_VERSION", stored_version), shell=True)
+        subprocess.run(sed_replace("STORED_VERSION", stored_version.strip()), shell=True)
     print("Configuraci�n guardada.")
 
 # ========================================
@@ -139,7 +145,7 @@ def check_silverblue_version_py(callback_line):
     else:
         latest_version = ""
     config = read_config()
-    stored_version = config.get("STORED_VERSION", "")
+    stored_version = config.get("STORED_VERSION", "").strip()
     if latest_version and latest_version != stored_version:
         callback_line(f"Aplicando rebase a la versi�n: {latest_version}")
         rcode = ejecutar_comando_captura(f"rpm-ostree rebase {latest_version}", callback_line)
@@ -167,28 +173,14 @@ def crear_desktop_app(app_key):
     comando = f'echo -e "{content}" | tee {desktop_path} && chmod +x {desktop_path}'
     return comando
 
-# ========================================
-# EVITAR PROMPT AL CREAR TOOLBOX
-# ========================================
 def ensure_toolbox_exists(callback_line=None):
-    """
-    Verifica si el contenedor 'treeossecure' existe.
-    Si no existe, lo crea autom�ticamente SIN pedir confirmaci�n.
-    Para ello, hace pull de la imagen fedora-toolbox y luego
-    usa echo "y" para responder a cualquier prompt.
-    """
     try:
         output = subprocess.check_output("toolbox list", shell=True, text=True)
         if "treeossecure" not in output:
             if callback_line:
                 callback_line("Contenedor 'treeossecure' no encontrado. Cre�ndolo autom�ticamente...")
-
-            # 1) Descargamos la imagen (evita el prompt de 'Descargar (377MB)? [y/N]')
             subprocess.run("podman pull --quiet registry.fedoraproject.org/fedora-toolbox", shell=True, check=True)
-
-            # 2) Creamos el contenedor, respondiendo "y" autom�ticamente
             subprocess.run("echo y | toolbox create -c treeossecure --image fedora-toolbox", shell=True, check=True)
-
             if callback_line:
                 callback_line("Contenedor 'treeossecure' creado exitosamente.")
     except subprocess.CalledProcessError as e:
@@ -205,8 +197,9 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         self.set_default_size(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.changing_theme = False
 
-        # Icono de ventana
-        self.set_custom_window_icon(APP_ICON)
+        # Se muestra un mensaje si no se encuentra el icono.
+        if not os.path.isfile(APP_ICON):
+            print(f"Icono no encontrado: {APP_ICON}")
 
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=MARGIN)
         main_box.set_margin_top(MARGIN)
@@ -237,16 +230,6 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
 
         if not os.path.exists(CONFIG_FILE):
             self.toggle_traditional.set_active(True)
-
-    def set_custom_window_icon(self, icon_path):
-        if os.path.isfile(icon_path):
-            try:
-                pixbuf = GdkPixbuf.Pixbuf.new_from_file(icon_path)
-                self.set_icon_from_pixbuf(pixbuf)
-            except Exception as e:
-                print(f"No se pudo cargar el icono: {e}")
-        else:
-            print(f"Icono no encontrado: {icon_path}")
 
     def build_apariencia_page(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=MARGIN)
@@ -292,7 +275,6 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
 
         box.append(theme_frame)
 
-        # Fondos
         wallpaper_frame = Gtk.Frame(label="Fondos Oficiales de TreeOS")
         wallpaper_box = Gtk.Grid()
         wallpaper_box.set_row_spacing(MARGIN)
@@ -318,7 +300,6 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
             col = (i - 1) % cols
             row = (i - 1) // cols
             wallpaper_box.attach(btn, col, row, 1, 1)
-
         wallpaper_frame.set_child(wallpaper_box)
         box.append(wallpaper_frame)
 
@@ -374,9 +355,6 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         comando = f"gsettings set org.gnome.desktop.background picture-uri 'file://{wallpaper_path}'"
         threading.Thread(target=ejecutar_comando_captura, args=(comando, None), daemon=True).start()
 
-    # ======================
-    # P�GINA: Actualizaciones
-    # ======================
     def build_actualizaciones_page(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         header = Gtk.Label()
@@ -390,7 +368,6 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         freq_box.append(freq_label)
 
         self.freq_combo = Gtk.ComboBoxText()
-        # Aunque aparezca DeprecationWarning, sigue funcionando en GTK4.
         self.freq_combo.append("daily", "Diariamente")
         self.freq_combo.append("weekly", "Semanalmente")
         self.freq_combo.append("monthly", "Mensualmente")
@@ -458,13 +435,11 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
             return
         with open(LOCK_FILE, "w") as f:
             f.write(str(os.getpid()))
-
         self.btn_update_now.set_sensitive(False)
         self.spinner.start()
         self.img_complete.set_visible(False)
         self.clear_details_text()
         self.append_details_text("Iniciando actualizaci�n manual...")
-
         t = threading.Thread(target=self.procesar_actualizacion, daemon=True)
         t.start()
 
@@ -496,29 +471,21 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         buffer = self.details_textview.get_buffer()
         buffer.set_text("")
 
-    # ======================
-    # P�GINA: TreeOS Ayuda
-    # ======================
     def build_treeos_ayuda_page(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=MARGIN)
         header = Gtk.Label()
         header.set_markup("<span size='xx-large' weight='bold'>TreeOS Ayuda</span>")
         header.set_margin_bottom(MARGIN)
         box.append(header)
-
-        guide_text = (
-            "TreeOS es una plataforma innovadora que combina la familiaridad de Windows "
-            "con la flexibilidad de Linux. Utilice esta secci�n para aprender a usar TreeOS "
-            "y sacar el m�ximo provecho de sus funcionalidades."
-        )
+        guide_text = ("TreeOS es una plataforma innovadora que combina la familiaridad de Windows "
+                      "con la flexibilidad de Linux. Utilice esta secci�n para aprender a usar TreeOS "
+                      "y sacar el m�ximo provecho de sus funcionalidades.")
         guide_label = Gtk.Label(label=guide_text)
         guide_label.set_wrap(True)
         box.append(guide_label)
-
         manual_btn = Gtk.Button(label="Abrir Manual de Usuario")
         manual_btn.connect("clicked", self.abrir_manual)
         box.append(manual_btn)
-
         self.stack.add_titled(box, "TreeOS Ayuda", "TreeOS Ayuda")
 
     def abrir_manual(self, button):
@@ -527,44 +494,32 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         else:
             print("No se encontr� el manual en:", MANUAL_FILE)
 
-    # ======================
-    # P�GINA: TreeOS Secure
-    # ======================
     def build_treeos_secure_page(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=MARGIN)
         header = Gtk.Label()
         header.set_markup("<span size='xx-large' weight='bold'>TreeOS Secure</span>")
         header.set_margin_bottom(MARGIN)
         box.append(header)
-
         desc = Gtk.Label(label="Instala r�pidamente herramientas de desarrollo dentro del toolbox treeossecure:")
         desc.set_margin_bottom(MARGIN)
         box.append(desc)
-
         toolbox_buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=MARGIN)
-
-        btn_pycharm = Gtk.Button(label="Instalar PyCharm")
-        btn_pycharm.connect("clicked", self.on_instalar_app, "pycharm")
-        toolbox_buttons.append(btn_pycharm)
-
-        btn_vscode = Gtk.Button(label="Instalar VS Code")
-        btn_vscode.connect("clicked", self.on_instalar_app, "vscode")
-        toolbox_buttons.append(btn_vscode)
-
-        btn_anaconda = Gtk.Button(label="Instalar Anaconda")
-        btn_anaconda.connect("clicked", self.on_instalar_app, "anaconda")
-        toolbox_buttons.append(btn_anaconda)
-
+        self.btn_pycharm = Gtk.Button(label=self.get_app_button_label("pycharm"))
+        self.btn_pycharm.connect("clicked", self.on_toggle_app, "pycharm")
+        toolbox_buttons.append(self.btn_pycharm)
+        self.btn_vscode = Gtk.Button(label=self.get_app_button_label("vscode"))
+        self.btn_vscode.connect("clicked", self.on_toggle_app, "vscode")
+        toolbox_buttons.append(self.btn_vscode)
+        self.btn_anaconda = Gtk.Button(label=self.get_app_button_label("anaconda"))
+        self.btn_anaconda.connect("clicked", self.on_toggle_app, "anaconda")
+        toolbox_buttons.append(self.btn_anaconda)
         box.append(toolbox_buttons)
-
         terminal_btn = Gtk.Button(label="Abrir Terminal en Toolbox")
         terminal_btn.connect("clicked", self.abrir_terminal_toolbox)
         box.append(terminal_btn)
-
         self.secure_details_button = Gtk.Button(label="Ver Progreso")
         self.secure_details_button.connect("clicked", self.on_secure_details_clicked)
         box.append(self.secure_details_button)
-
         self.secure_details_scrolled = Gtk.ScrolledWindow()
         self.secure_details_scrolled.set_vexpand(True)
         self.secure_details_scrolled.set_hexpand(True)
@@ -574,56 +529,88 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         self.secure_details_textview.set_wrap_mode(Gtk.WrapMode.WORD)
         self.secure_details_scrolled.set_child(self.secure_details_textview)
         box.append(self.secure_details_scrolled)
-
         self.secure_spinner = Gtk.Spinner()
         box.append(self.secure_spinner)
-
         self.secure_img_complete = Gtk.Image.new_from_icon_name("emblem-default")
         self.secure_img_complete.set_pixel_size(48)
         self.secure_img_complete.set_visible(False)
         box.append(self.secure_img_complete)
-
+        restore_btn = Gtk.Button(label="Restaurar TreeOS Secure")
+        restore_btn.connect("clicked", self.on_restaurar_treeossecure)
+        box.append(restore_btn)
         self.stack.add_titled(box, "TreeOS Secure", "TreeOS Secure")
 
-    def on_secure_details_clicked(self, button):
-        visible = not self.secure_details_scrolled.get_visible()
-        self.secure_details_scrolled.set_visible(visible)
-        button.set_label("Ocultar Progreso" if visible else "Ver Progreso")
+    def get_app_button_label(self, app_key):
+        if is_app_installed(app_key):
+            return "Desinstalar " + APPS_DESKTOP[app_key]['name']
+        else:
+            return "Instalar " + APPS_DESKTOP[app_key]['name']
 
-    def append_secure_details_text(self, line):
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        GLib.idle_add(self._append_secure_details_text_idle, f"[{now}] {line}")
+    def update_app_button_label(self, app_key):
+        label = self.get_app_button_label(app_key)
+        if app_key == "pycharm":
+            self.btn_pycharm.set_label(label)
+        elif app_key == "vscode":
+            self.btn_vscode.set_label(label)
+        elif app_key == "anaconda":
+            self.btn_anaconda.set_label(label)
 
-    def _append_secure_details_text_idle(self, line):
-        buffer = self.secure_details_textview.get_buffer()
-        end_iter = buffer.get_end_iter()
-        buffer.insert(end_iter, line + "\n")
+    def on_toggle_app(self, button, app_key):
+        button.set_sensitive(False)
+        if is_app_installed(app_key):
+            t = threading.Thread(target=self.desinstalar_app_background, args=(app_key, button), daemon=True)
+            t.start()
+        else:
+            t = threading.Thread(target=self.instalar_app_background, args=(app_key, button), daemon=True)
+            t.start()
 
-    def clear_secure_details_text(self):
-        buffer = self.secure_details_textview.get_buffer()
-        buffer.set_text("")
-
-    def mostrar_secure_imagen_completa(self):
-        self.secure_spinner.stop()
-        self.secure_img_complete.set_visible(True)
-
-    def on_instalar_app(self, button, app_key):
-        # Lanza un thread para no bloquear la GUI
-        t = threading.Thread(target=self.instalar_app_background, args=(app_key,), daemon=True)
-        t.start()
-
-    def instalar_app_background(self, app_key):
-        self.secure_details_scrolled.set_visible(True)
+    def desinstalar_app_background(self, app_key, btn):
         GLib.idle_add(self.secure_spinner.start)
         GLib.idle_add(self.secure_img_complete.set_visible, False)
         self.clear_secure_details_text()
-
-        self.append_secure_details_text("Verificando contenedor 'treeossecure'...")
+        self.append_secure_details_text("Verificando contenedor 'treeossecure' para desinstalaci�n...")
         ensure_toolbox_exists(self.append_secure_details_text)
-
-        # Ubicar el script de instalaci�n en el mismo directorio que el programa
         script_dir = os.path.dirname(os.path.abspath(__file__))
-    
+        if app_key == "pycharm":
+            script_file = "uninstall_pycharm.sh"
+        elif app_key == "vscode":
+            script_file = "uninstall_vscode.sh"
+        elif app_key == "anaconda":
+            script_file = "uninstall_anaconda.sh"
+        else:
+            script_file = ""
+        if script_file:
+            script_path = os.path.join(script_dir, script_file)
+            uninstall_cmd = f"toolbox run --container treeossecure bash -c 'bash {script_path}'"
+        else:
+            uninstall_cmd = ""
+        if uninstall_cmd:
+            self.append_secure_details_text(f"Iniciando desinstalaci�n de {APPS_DESKTOP[app_key]['name']}...")
+            ejecutar_comando_captura(uninstall_cmd, self.append_secure_details_text)
+            self.append_secure_details_text(f"Desinstalaci�n de {APPS_DESKTOP[app_key]['name']} completada.")
+        else:
+            self.append_secure_details_text("Error: no se defini� comando para desinstalar la app.")
+        data = APPS_DESKTOP[app_key]
+        desktop_path = os.path.expanduser(f"~/.local/share/applications/{data['desktop_file']}")
+        if os.path.exists(desktop_path):
+            try:
+                os.remove(desktop_path)
+                self.append_secure_details_text(f"Se elimin� el archivo {desktop_path}.")
+            except Exception as e:
+                self.append_secure_details_text(f"Error al eliminar el archivo {desktop_path}: {e}")
+        else:
+            self.append_secure_details_text("No se encontr� el archivo de escritorio para eliminar.")
+        GLib.idle_add(self.mostrar_secure_imagen_completa)
+        GLib.idle_add(self.update_app_button_label, app_key)
+        GLib.idle_add(btn.set_sensitive, True)
+
+    def instalar_app_background(self, app_key, btn):
+        GLib.idle_add(self.secure_spinner.start)
+        GLib.idle_add(self.secure_img_complete.set_visible, False)
+        self.clear_secure_details_text()
+        self.append_secure_details_text("Verificando contenedor 'treeossecure' para instalaci�n...")
+        ensure_toolbox_exists(self.append_secure_details_text)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
         if app_key == "pycharm":
             script_file = "install_pycharm.sh"
         elif app_key == "vscode":
@@ -632,41 +619,102 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
             script_file = "install_anaconda.sh"
         else:
             script_file = ""
-    
         if script_file:
             script_path = os.path.join(script_dir, script_file)
             install_cmd = f"toolbox run --container treeossecure bash -c 'bash {script_path}'"
         else:
             install_cmd = ""
-    
         if install_cmd:
             self.append_secure_details_text(f"Iniciando instalaci�n de {APPS_DESKTOP[app_key]['name']}...")
             ejecutar_comando_captura(install_cmd, self.append_secure_details_text)
             self.append_secure_details_text(f"Instalaci�n de {APPS_DESKTOP[app_key]['name']} completada.")
-
-            desktop_cmd = crear_desktop_app(app_key)
-            ejecutar_comando_captura(desktop_cmd, self.append_secure_details_text)
-            self.append_secure_details_text("Archivo .desktop creado.")
+            if not is_app_installed(app_key):
+                subprocess.run(crear_desktop_app(app_key), shell=True)
         else:
             self.append_secure_details_text("Error: no se defini� comando para instalar la app.")
-
         GLib.idle_add(self.mostrar_secure_imagen_completa)
+        GLib.idle_add(self.update_app_button_label, app_key)
+        GLib.idle_add(btn.set_sensitive, True)
+
+    def on_secure_details_clicked(self, button):
+        visible = not self.secure_details_scrolled.get_visible()
+        self.secure_details_scrolled.set_visible(visible)
+        button.set_label("Ocultar Progreso" if visible else "Ver Progreso")
 
     def abrir_terminal_toolbox(self, button):
-        # Abre la terminal en un hilo separado para no congelar la GUI
         t = threading.Thread(target=self.abrir_terminal_thread, daemon=True)
         t.start()
 
     def abrir_terminal_thread(self):
         ensure_toolbox_exists()
         try:
-            subprocess.Popen("ptyxis -- toolbox enter treeossecure", shell=True)
+            anaconda_desktop = os.path.expanduser("~/.local/share/applications/anaconda-treeossecure.desktop")
+            if os.path.exists(anaconda_desktop):
+                subprocess.Popen("ptyxis -- toolbox run --container treeossecure conda activate basenv", shell=True)
+            else:
+                subprocess.Popen("ptyxis -- toolbox enter treeossecure", shell=True)
         except Exception as e:
             print(f"Error al abrir la terminal en toolbox: {e}")
 
-# ========================================
-# APLICACI�N PRINCIPAL
-# ========================================
+    def on_restaurar_treeossecure(self, button):
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text="�Est� seguro que desea restaurar TreeOS Secure?\nEsto eliminar� el contenedor toolbox 'treeossecure'."
+        )
+        dialog.connect("response", self.on_restore_response)
+        dialog.present()
+
+    def on_restore_response(self, dialog, response):
+        if response == Gtk.ResponseType.OK:
+            try:
+                output = subprocess.check_output("toolbox list", shell=True, text=True)
+                if "treeossecure" not in output:
+                    self.append_secure_details_text("No se encontr� el contenedor 'treeossecure'.")
+                else:
+                    result = subprocess.run("toolbox rm -f treeossecure", shell=True, capture_output=True, text=True)
+                    if result.returncode == 0:
+                        self.append_secure_details_text("TreeOS Secure ha sido restaurado (toolbox eliminado).")
+                    else:
+                        self.append_secure_details_text(f"Error al restaurar TreeOS Secure: {result.stderr}")
+            except subprocess.CalledProcessError as e:
+                self.append_secure_details_text(f"Error al verificar contenedor: {e}")
+        dialog.destroy()
+
+    def clear_secure_details_text(self):
+        buffer = self.secure_details_textview.get_buffer()
+        buffer.set_text("")
+
+    def _append_secure_details_text_idle(self, line):
+        buffer = self.secure_details_textview.get_buffer()
+        end_iter = buffer.get_end_iter()
+        buffer.insert(end_iter, line + "\n")
+
+    def append_secure_details_text(self, line):
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        GLib.idle_add(self._append_secure_details_text_idle, f"[{now}] {line}")
+
+    def mostrar_secure_imagen_completa(self):
+        self.secure_spinner.stop()
+        self.secure_img_complete.set_visible(True)
+
+    def update_app_button_label(self, app_key):
+        label = self.get_app_button_label(app_key)
+        if app_key == "pycharm":
+            self.btn_pycharm.set_label(label)
+        elif app_key == "vscode":
+            self.btn_vscode.set_label(label)
+        elif app_key == "anaconda":
+            self.btn_anaconda.set_label(label)
+
+    def get_app_button_label(self, app_key):
+        if is_app_installed(app_key):
+            return "Desinstalar " + APPS_DESKTOP[app_key]['name']
+        else:
+            return "Instalar " + APPS_DESKTOP[app_key]['name']
+
 class Aplicacion(Gtk.Application):
     def __init__(self):
         super().__init__(application_id="org.treeoscontrol.app")
@@ -677,8 +725,14 @@ class Aplicacion(Gtk.Application):
         window.present()
 
 if __name__ == "__main__":
+    instance_lock_file = "/tmp/treeos_control_instance.lock"
+    lock_file = open(instance_lock_file, "w")
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except IOError:
+        print("Otra instancia de TreeOS Control Panel ya est� corriendo.")
+        sys.exit(0)
     if not os.path.exists(BASE_DIR):
         os.makedirs(BASE_DIR, exist_ok=True)
-
     app = Aplicacion()
     app.run()
