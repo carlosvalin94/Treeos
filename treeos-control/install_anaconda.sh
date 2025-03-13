@@ -3,7 +3,7 @@
 # Instalar dependencias
 sudo dnf install -y conda
 
-conda create -n env1 
+conda create -n env1 anaconda-navigator
 
 sudo dnf install qt5-qtbase qt5-qtbase-gui xcb-util xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil
 
