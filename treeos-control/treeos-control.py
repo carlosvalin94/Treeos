@@ -15,7 +15,7 @@ CONFIG_FILE = os.path.join(BASE_DIR, "update_config.conf")
 MANUAL_FILE = os.path.join(BASE_DIR, "treeosmanual.pdf")
 LATEST_RELEASE_FILE = os.path.join(BASE_DIR, "latest-release")
 
-# Aseg�rate de que tengas un archivo "logo.png" en BASE_DIR
+# Aseg\ufffdrate de que tengas un archivo "logo.png" en BASE_DIR
 APP_ICON = os.path.join(BASE_DIR, "logo.png")
 
 WINDOW_WIDTH = 750
@@ -61,7 +61,7 @@ APPS_DESKTOP = {
 }
 
 # ========================================
-# FUNCIONES DE CONFIGURACI�N
+# FUNCIONES DE CONFIGURACI\ufffdN
 # ========================================
 def read_config():
     config = DEFAULT_CONFIG.copy()
@@ -80,9 +80,9 @@ def read_config():
                         else:
                             config[key] = value
                     except ValueError:
-                        print(f"L�nea malformada: {line}")
+                        print(f"L\ufffdnea malformada: {line}")
     else:
-        print("Archivo de configuraci�n no encontrado o vac�o. Usando valores por defecto.")
+        print("Archivo de configuraci\ufffdn no encontrado o vac\ufffdo. Usando valores por defecto.")
     return config
 
 def write_config(auto_updates_enabled=None, check_frequency=None, extensiones_habilitadas=None,
@@ -98,7 +98,7 @@ def write_config(auto_updates_enabled=None, check_frequency=None, extensiones_ha
             f.write(f"FIRST_BOOT={str(first_boot if first_boot is not None else DEFAULT_CONFIG['FIRST_BOOT']).lower()}\n")
             f.write(f"LAST_UPDATE_CHECK={last_update_check if last_update_check is not None else DEFAULT_CONFIG['LAST_UPDATE_CHECK']}\n")
             f.write(f"STORED_VERSION={stored_version if stored_version is not None else DEFAULT_CONFIG['STORED_VERSION']}\n")
-        print("Archivo de configuraci�n creado con valores por defecto.")
+        print("Archivo de configuraci\ufffdn creado con valores por defecto.")
         return
 
     if auto_updates_enabled is not None:
@@ -113,10 +113,10 @@ def write_config(auto_updates_enabled=None, check_frequency=None, extensiones_ha
         subprocess.run(sed_replace("LAST_UPDATE_CHECK", str(last_update_check)), shell=True)
     if stored_version is not None:
         subprocess.run(sed_replace("STORED_VERSION", stored_version), shell=True)
-    print("Configuraci�n guardada.")
+    print("Configuraci\ufffdn guardada.")
 
 # ========================================
-# FUNCIONES DE SUBPROCESOS Y EJECUCI�N
+# FUNCIONES DE SUBPROCESOS Y EJECUCI\ufffdN
 # ========================================
 def ejecutar_comando_captura(comando, callback_line=None):
     process = subprocess.Popen(comando, shell=True,
@@ -141,10 +141,10 @@ def check_silverblue_version_py(callback_line):
     config = read_config()
     stored_version = config.get("STORED_VERSION", "")
     if latest_version and latest_version != stored_version:
-        callback_line(f"Aplicando rebase a la versi�n: {latest_version}")
+        callback_line(f"Aplicando rebase a la versi\ufffdn: {latest_version}")
         rcode = ejecutar_comando_captura(f"rpm-ostree rebase {latest_version}", callback_line)
         if rcode == 0:
-            callback_line(f"Rebase completado a la versi�n: {latest_version}")
+            callback_line(f"Rebase completado a la versi\ufffdn: {latest_version}")
             write_config(stored_version=latest_version)
         else:
             callback_line(f"Error al aplicar rebase a {latest_version}.")
@@ -173,7 +173,7 @@ def crear_desktop_app(app_key):
 def ensure_toolbox_exists(callback_line=None):
     """
     Verifica si el contenedor 'treeossecure' existe.
-    Si no existe, lo crea autom�ticamente SIN pedir confirmaci�n.
+    Si no existe, lo crea autom\ufffdticamente SIN pedir confirmaci\ufffdn.
     Para ello, hace pull de la imagen fedora-toolbox y luego
     usa echo "y" para responder a cualquier prompt.
     """
@@ -181,12 +181,12 @@ def ensure_toolbox_exists(callback_line=None):
         output = subprocess.check_output("toolbox list", shell=True, text=True)
         if "treeossecure" not in output:
             if callback_line:
-                callback_line("Contenedor 'treeossecure' no encontrado. Cre�ndolo autom�ticamente...")
+                callback_line("Contenedor 'treeossecure' no encontrado. Cre\ufffdndolo autom\ufffdticamente...")
 
             # 1) Descargamos la imagen (evita el prompt de 'Descargar (377MB)? [y/N]')
             subprocess.run("podman pull --quiet registry.fedoraproject.org/fedora-toolbox", shell=True, check=True)
 
-            # 2) Creamos el contenedor, respondiendo "y" autom�ticamente
+            # 2) Creamos el contenedor, respondiendo "y" autom\ufffdticamente
             subprocess.run("echo y | toolbox create -c treeossecure --image fedora-toolbox", shell=True, check=True)
 
             if callback_line:
@@ -322,7 +322,7 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         wallpaper_frame.set_child(wallpaper_box)
         box.append(wallpaper_frame)
 
-        more_options_btn = Gtk.Button(label="Para m�s opciones de apariencia")
+        more_options_btn = Gtk.Button(label="Para m\ufffds opciones de apariencia")
         more_options_btn.connect("clicked", lambda w: subprocess.Popen("gnome-control-center appearance", shell=True))
         box.append(more_options_btn)
 
@@ -375,7 +375,7 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         threading.Thread(target=ejecutar_comando_captura, args=(comando, None), daemon=True).start()
 
     # ======================
-    # P�GINA: Actualizaciones
+    # P\ufffdGINA: Actualizaciones
     # ======================
     def build_actualizaciones_page(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -407,7 +407,7 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         box.append(freq_box)
 
         auto_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        auto_label = Gtk.Label(label="Actualizaciones Autom�ticas:")
+        auto_label = Gtk.Label(label="Actualizaciones Autom\ufffdticas:")
         auto_label.set_halign(Gtk.Align.START)
         auto_box.append(auto_label)
 
@@ -454,7 +454,7 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
 
     def on_actualizar_sistema(self, button):
         if os.path.exists(LOCK_FILE):
-            self.append_details_text("�Ya se est� ejecutando una actualizaci�n! Espere a que finalice.")
+            self.append_details_text("\ufffdYa se est\ufffd ejecutando una actualizaci\ufffdn! Espere a que finalice.")
             return
         with open(LOCK_FILE, "w") as f:
             f.write(str(os.getpid()))
@@ -463,7 +463,7 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         self.spinner.start()
         self.img_complete.set_visible(False)
         self.clear_details_text()
-        self.append_details_text("Iniciando actualizaci�n manual...")
+        self.append_details_text("Iniciando actualizaci\ufffdn manual...")
 
         t = threading.Thread(target=self.procesar_actualizacion, daemon=True)
         t.start()
@@ -472,7 +472,7 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         try:
             apply_updates_py(self.append_details_text)
             check_silverblue_version_py(self.append_details_text)
-            self.append_details_text("Actualizaci�n manual completada.")
+            self.append_details_text("Actualizaci\ufffdn manual completada.")
         finally:
             if os.path.exists(LOCK_FILE):
                 os.remove(LOCK_FILE)
@@ -497,7 +497,7 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         buffer.set_text("")
 
     # ======================
-    # P�GINA: TreeOS Ayuda
+    # P\ufffdGINA: TreeOS Ayuda
     # ======================
     def build_treeos_ayuda_page(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=MARGIN)
@@ -508,8 +508,8 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
 
         guide_text = (
             "TreeOS es una plataforma innovadora que combina la familiaridad de Windows "
-            "con la flexibilidad de Linux. Utilice esta secci�n para aprender a usar TreeOS "
-            "y sacar el m�ximo provecho de sus funcionalidades."
+            "con la flexibilidad de Linux. Utilice esta secci\ufffdn para aprender a usar TreeOS "
+            "y sacar el m\ufffdximo provecho de sus funcionalidades."
         )
         guide_label = Gtk.Label(label=guide_text)
         guide_label.set_wrap(True)
@@ -525,10 +525,10 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         if os.path.isfile(MANUAL_FILE):
             subprocess.Popen(f"xdg-open '{MANUAL_FILE}'", shell=True)
         else:
-            print("No se encontr� el manual en:", MANUAL_FILE)
+            print("No se encontr\ufffd el manual en:", MANUAL_FILE)
 
     # ======================
-    # P�GINA: TreeOS Secure
+    # P\ufffdGINA: TreeOS Secure
     # ======================
     def build_treeos_secure_page(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=MARGIN)
@@ -537,7 +537,7 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         header.set_margin_bottom(MARGIN)
         box.append(header)
 
-        desc = Gtk.Label(label="Instala r�pidamente herramientas de desarrollo dentro del toolbox treeossecure:")
+        desc = Gtk.Label(label="Instala r\ufffdpidamente herramientas de desarrollo dentro del toolbox treeossecure:")
         desc.set_margin_bottom(MARGIN)
         box.append(desc)
 
@@ -622,7 +622,7 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         ensure_toolbox_exists(self.append_secure_details_text)
 
         if app_key == "pycharm":
-            # Ubicar el script de instalaci�n en el mismo directorio que el programa
+            # Ubicar el script de instalaci\ufffdn en el mismo directorio que el programa
             script_dir = os.path.dirname(os.path.abspath(__file__))
             script_path = os.path.join(script_dir, "install_pycharm.sh")
             # Construir el comando para ejecutar el script dentro del contenedor 'treeossecure'
@@ -646,15 +646,15 @@ dnf install -y code
             install_cmd = ""
 
         if install_cmd:
-            self.append_secure_details_text(f"Iniciando instalaci�n de {APPS_DESKTOP[app_key]['name']}...")
+            self.append_secure_details_text(f"Iniciando instalaci\ufffdn de {APPS_DESKTOP[app_key]['name']}...")
             ejecutar_comando_captura(install_cmd, self.append_secure_details_text)
-            self.append_secure_details_text(f"Instalaci�n de {APPS_DESKTOP[app_key]['name']} completada.")
+            self.append_secure_details_text(f"Instalaci\ufffdn de {APPS_DESKTOP[app_key]['name']} completada.")
 
             desktop_cmd = crear_desktop_app(app_key)
             ejecutar_comando_captura(desktop_cmd, self.append_secure_details_text)
             self.append_secure_details_text("Archivo .desktop creado.")
         else:
-            self.append_secure_details_text("Error: no se defini� comando para instalar la app.")
+            self.append_secure_details_text("Error: no se defini\ufffd comando para instalar la app.")
 
         GLib.idle_add(self.mostrar_secure_imagen_completa)
 
@@ -671,7 +671,7 @@ dnf install -y code
             print(f"Error al abrir la terminal en toolbox: {e}")
 
 # ========================================
-# APLICACI�N PRINCIPAL
+# APLICACI\ufffdN PRINCIPAL
 # ========================================
 class Aplicacion(Gtk.Application):
     def __init__(self):
