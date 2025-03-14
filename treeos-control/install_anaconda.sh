@@ -3,8 +3,7 @@
 # Instalar dependencias
 sudo dnf install -y conda
 
-sudo dnf install -y qt5-qtbase qt5-qtbase-gui xcb-util xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil pciutils-libs 
-
+sudo dnf install -y qt5-qtbase qt5-qtbase-gui xcb-util xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil pciutils-libs libXrandr alsa-lib.x86_64 libXdamage libXtst
 conda config --set channel_priority strict
 conda config --append channels defaults
 conda create -n basenv -c default anaconda-navigator
