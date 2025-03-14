@@ -16,6 +16,5 @@ conda env remove -n basenv
 
 # Desinstalar las dependencias instaladas con dnf
 echo "Desinstalando dependencias instaladas con dnf..."
-sudo dnf remove -y conda qt5-qtbase qt5-qtbase-gui xcb-util xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil pciutils-libs
-
+sudo dnf remove -y conda qt5-qtbase qt5-qtbase-gui xcb-util xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil pciutils-libs libXrandr alsa-lib.x86_64 libXdamage libXtst
 echo "Proceso de desinstalaci�n completado."
