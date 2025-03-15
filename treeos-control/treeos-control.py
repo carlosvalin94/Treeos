@@ -3,20 +3,22 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gtk, GLib, GdkPixbuf
-import subprocess, os, threading, sys, fcntl, re
+import subprocess, os, threading, sys, fcntl, re, shutil
 from datetime import datetime
 
 # ========================================
 # RUTAS, CONFIGURACIONES Y VARIABLES
 # ========================================
-USER = os.getenv("USER")
-BASE_DIR = f"/var/home/{USER}/.local/share/applications/treeos-control"
-CONFIG_FILE = os.path.join(BASE_DIR, "update_config.conf")
-MANUAL_FILE = os.path.join(BASE_DIR, "treeosmanual.pdf")
-LATEST_RELEASE_FILE = os.path.join(BASE_DIR, "latest-release")
 
-# Usamos logo.gif en lugar de logo.png
-APP_ICON = os.path.join(BASE_DIR, "logo.gif")
+# Directorios est�ndar para un RPM instalable
+RESOURCE_DIR = "/usr/share/treeos-control"   # Recursos de solo lectura (im�genes, manual, wallpapers, etc.)
+CONFIG_DIR = "/etc/treeos-control"             # Configuraci�n global (archivos modificables)
+DESKTOP_DIR  = "/usr/share/applications"        # Ubicaci�n global para archivos .desktop
+
+CONFIG_FILE   = os.path.join(CONFIG_DIR, "update_config.conf")
+MANUAL_FILE   = os.path.join(RESOURCE_DIR, "treeosmanual.pdf")
+APP_ICON      = os.path.join(RESOURCE_DIR, "logo.gif")
+WALLPAPERS_DIR= os.path.join(RESOURCE_DIR, "wallpapers")
 
 WINDOW_WIDTH = 750
 WINDOW_HEIGHT = 600
@@ -35,10 +37,7 @@ DEFAULT_CONFIG = {
     "STORED_VERSION": ""
 }
 
-# Diccionario de apps para .desktop con rutas actualizadas:
-# ~/.local/share/applications/anaconda-treeossecure.desktop
-# ~/.local/share/applications/pycharm-treeossecure.desktop
-# ~/.local/share/applications/vscode-treeossecure.desktop
+# Diccionario de apps para .desktop:
 APPS_DESKTOP = {
     "pycharm": {
         "package": "pycharm-community",
@@ -68,7 +67,7 @@ APPS_DESKTOP = {
 # ----------------------------------------
 def is_app_installed(app_key):
     data = APPS_DESKTOP[app_key]
-    desktop_path = os.path.expanduser(f"~/.local/share/applications/{data['desktop_file']}")
+    desktop_path = os.path.join(DESKTOP_DIR, data['desktop_file'])
     return os.path.exists(desktop_path)
 
 # ========================================
@@ -141,22 +140,20 @@ def ejecutar_comando_captura(comando, callback_line=None):
 def apply_updates_py(callback_line):
     return ejecutar_comando_captura("rpm-ostree upgrade", callback_line)
 
-# Funci�n actualizada para el rebase:
 def check_silverblue_version_py(callback_line):
-    if os.path.isfile(LATEST_RELEASE_FILE):
-        with open(LATEST_RELEASE_FILE) as f:
+    latest_release_path = os.path.join(RESOURCE_DIR, "latest-release")
+    if os.path.isfile(latest_release_path):
+        with open(latest_release_path) as f:
             latest_release = f.read().strip()
     else:
         latest_release = ""
     
-    # Intentamos extraer un n�mero de versi�n (por ejemplo, "41") usando regex.
     extracted_version = None
     if latest_release:
         m = re.search(r'/(\d+)/', latest_release)
         if m:
             extracted_version = m.group(1)
     
-    # Obtener la versi�n actual del sistema desde /etc/os-release.
     current_version = ""
     try:
         with open("/etc/os-release") as f:
@@ -170,10 +167,6 @@ def check_silverblue_version_py(callback_line):
     config = read_config()
     stored_version = config.get("STORED_VERSION", "").strip()
     
-    # Se procede con el rebase solo si:
-    # 1. latest_release existe y es distinta a stored_version.
-    # 2. Si se pudo extraer un n�mero de versi�n y �ste coincide con current_version, NO se hace rebase.
-    # 3. Si no se pudo extraer un n�mero (imagen personalizada) o el n�mero extra�do es distinto, se hace rebase.
     if latest_release and latest_release != stored_version:
         if extracted_version is not None:
             if extracted_version == current_version:
@@ -213,7 +206,6 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         self.set_default_size(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.changing_theme = False
 
-        # Se muestra un mensaje si no se encuentra el icono.
         if not os.path.isfile(APP_ICON):
             print(f"Icono no encontrado: {APP_ICON}")
 
@@ -244,9 +236,6 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
 
         self.stack.set_visible_child_name("Apariencia")
 
-        if not os.path.exists(CONFIG_FILE):
-            self.toggle_traditional.set_active(True)
-
     def build_apariencia_page(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=MARGIN)
         header = Gtk.Label()
@@ -265,7 +254,7 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
 
         self.toggle_traditional = Gtk.ToggleButton()
         vbox_traditional = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        img_traditional_path = os.path.join(BASE_DIR, "traditional.png")
+        img_traditional_path = os.path.join(RESOURCE_DIR, "traditional.png")
         if os.path.isfile(img_traditional_path):
             img_traditional = Gtk.Image.new_from_file(img_traditional_path)
             img_traditional.set_pixel_size(SMALL_IMAGE_SIZE)
@@ -278,7 +267,7 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
 
         self.toggle_modern = Gtk.ToggleButton()
         vbox_modern = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        img_modern_path = os.path.join(BASE_DIR, "modern.png")
+        img_modern_path = os.path.join(RESOURCE_DIR, "modern.png")
         if os.path.isfile(img_modern_path):
             img_modern = Gtk.Image.new_from_file(img_modern_path)
             img_modern.set_pixel_size(SMALL_IMAGE_SIZE)
@@ -305,7 +294,7 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         cols = 3
         for i in range(1, num_wallpapers + 1):
             btn = Gtk.Button()
-            wallpaper_path = os.path.join(BASE_DIR, f"treeoswallpaper{i:02d}.webp")
+            wallpaper_path = os.path.join(WALLPAPERS_DIR, f"treeoswallpaper{i:02d}.webp")
             if not os.path.isfile(wallpaper_path):
                 continue
             img_wallpaper = Gtk.Image.new_from_file(wallpaper_path)
@@ -586,7 +575,8 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         self.clear_secure_details_text()
         self.append_secure_details_text("Verificando contenedor 'treeossecure' para desinstalaci�n...")
         ensure_toolbox_exists(self.append_secure_details_text)
-        script_dir = os.path.dirname(os.path.abspath(__file__))
+        # Usamos la ruta fija para los scripts:
+        script_dir = "/usr/share/treeos-control"
         if app_key == "pycharm":
             script_file = "uninstall_pycharm.sh"
         elif app_key == "vscode":
@@ -597,7 +587,19 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
             script_file = ""
         if script_file:
             script_path = os.path.join(script_dir, script_file)
-            uninstall_cmd = f"toolbox run --container treeossecure bash -c 'bash {script_path}'"
+            # Copiamos el script al directorio $HOME/.local en el host
+            host_local_dir = os.path.join(os.environ["HOME"], ".local")
+            os.makedirs(host_local_dir, exist_ok=True)
+            target_path = os.path.join(host_local_dir, script_file)
+            try:
+                shutil.copy(script_path, target_path)
+                self.append_secure_details_text(f"Script {script_file} copiado a {target_path}.")
+            except Exception as e:
+                self.append_secure_details_text(f"Error al copiar el script: {e}")
+                GLib.idle_add(self.secure_spinner.stop)
+                GLib.idle_add(btn.set_sensitive, True)
+                return
+            uninstall_cmd = f"toolbox run --container treeossecure bash -c 'bash $HOME/.local/{script_file}'"
         else:
             uninstall_cmd = ""
         if uninstall_cmd:
@@ -607,7 +609,7 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         else:
             self.append_secure_details_text("Error: no se defini� comando para desinstalar la app.")
         data = APPS_DESKTOP[app_key]
-        desktop_path = os.path.expanduser(f"~/.local/share/applications/{data['desktop_file']}")
+        desktop_path = os.path.join(DESKTOP_DIR, data['desktop_file'])
         if os.path.exists(desktop_path):
             try:
                 os.remove(desktop_path)
@@ -616,6 +618,12 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
                 self.append_secure_details_text(f"Error al eliminar el archivo {desktop_path}: {e}")
         else:
             self.append_secure_details_text("No se encontr� el archivo de escritorio para eliminar.")
+        # Eliminamos el script copiado del host
+        try:
+            os.remove(target_path)
+            self.append_secure_details_text(f"Script {target_path} eliminado.")
+        except Exception as e:
+            self.append_secure_details_text(f"Error al eliminar el script {target_path}: {e}")
         GLib.idle_add(self.mostrar_secure_imagen_completa)
         GLib.idle_add(self.update_app_button_label, app_key)
         GLib.idle_add(btn.set_sensitive, True)
@@ -626,7 +634,8 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         self.clear_secure_details_text()
         self.append_secure_details_text("Verificando contenedor 'treeossecure' para instalaci�n...")
         ensure_toolbox_exists(self.append_secure_details_text)
-        script_dir = os.path.dirname(os.path.abspath(__file__))
+        # Usamos la ruta fija para los scripts:
+        script_dir = "/usr/share/treeos-control"
         if app_key == "pycharm":
             script_file = "install_pycharm.sh"
         elif app_key == "vscode":
@@ -637,17 +646,33 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
             script_file = ""
         if script_file:
             script_path = os.path.join(script_dir, script_file)
-            install_cmd = f"toolbox run --container treeossecure bash -c 'bash {script_path}'"
+            # Copiamos el script al directorio $HOME/.local en el host
+            host_local_dir = os.path.join(os.environ["HOME"], ".local")
+            os.makedirs(host_local_dir, exist_ok=True)
+            target_path = os.path.join(host_local_dir, script_file)
+            try:
+                shutil.copy(script_path, target_path)
+                self.append_secure_details_text(f"Script {script_file} copiado a {target_path}.")
+            except Exception as e:
+                self.append_secure_details_text(f"Error al copiar el script: {e}")
+                GLib.idle_add(self.secure_spinner.stop)
+                GLib.idle_add(btn.set_sensitive, True)
+                return
+            install_cmd = f"toolbox run --container treeossecure bash -c 'bash $HOME/.local/{script_file}'"
         else:
             install_cmd = ""
         if install_cmd:
             self.append_secure_details_text(f"Iniciando instalaci�n de {APPS_DESKTOP[app_key]['name']}...")
             ejecutar_comando_captura(install_cmd, self.append_secure_details_text)
             self.append_secure_details_text(f"Instalaci�n de {APPS_DESKTOP[app_key]['name']} completada.")
-            # NOTA: Se elimina la creaci�n del archivo .desktop desde Python,
-            # ya que el script .sh correspondiente lo crea con el icono adecuado.
         else:
             self.append_secure_details_text("Error: no se defini� comando para instalar la app.")
+        # Eliminamos el script copiado del host
+        try:
+            os.remove(target_path)
+            self.append_secure_details_text(f"Script {target_path} eliminado.")
+        except Exception as e:
+            self.append_secure_details_text(f"Error al eliminar el script {target_path}: {e}")
         GLib.idle_add(self.mostrar_secure_imagen_completa)
         GLib.idle_add(self.update_app_button_label, app_key)
         GLib.idle_add(btn.set_sensitive, True)
@@ -664,7 +689,7 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
     def abrir_terminal_thread(self):
         ensure_toolbox_exists()
         try:
-            anaconda_desktop = os.path.expanduser("~/.local/share/applications/anaconda-treeossecure.desktop")
+            anaconda_desktop = os.path.join(DESKTOP_DIR, "anaconda-treeossecure.desktop")
             if os.path.exists(anaconda_desktop):
                 subprocess.Popen("ptyxis -- toolbox run --container treeossecure conda activate basenv", shell=True)
             else:
@@ -695,16 +720,14 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
                     result = subprocess.run("toolbox rm -f treeossecure", shell=True, capture_output=True, text=True)
                     if result.returncode == 0:
                         self.append_secure_details_text("TreeOS Secure ha sido restaurado (toolbox eliminado).")
-                        # Se eliminan los iconos de las aplicaciones (archivos .desktop)
                         for app_key, data in APPS_DESKTOP.items():
-                            desktop_path = os.path.expanduser(f"~/.local/share/applications/{data['desktop_file']}")
+                            desktop_path = os.path.join(DESKTOP_DIR, data['desktop_file'])
                             if os.path.exists(desktop_path):
                                 try:
                                     os.remove(desktop_path)
                                     self.append_secure_details_text(f"Icono para {data['name']} eliminado.")
                                 except Exception as e:
                                     self.append_secure_details_text(f"Error eliminando icono para {data['name']}: {e}")
-                        # Actualizar el estado de los botones para que muestren "Instalar"
                         GLib.idle_add(self.update_app_button_label, "pycharm")
                         GLib.idle_add(self.update_app_button_label, "vscode")
                         GLib.idle_add(self.update_app_button_label, "anaconda")
@@ -731,21 +754,6 @@ class ControlPanelWindow(Gtk.ApplicationWindow):
         self.secure_spinner.stop()
         self.secure_img_complete.set_visible(True)
 
-    def update_app_button_label(self, app_key):
-        label = self.get_app_button_label(app_key)
-        if app_key == "pycharm":
-            self.btn_pycharm.set_label(label)
-        elif app_key == "vscode":
-            self.btn_vscode.set_label(label)
-        elif app_key == "anaconda":
-            self.btn_anaconda.set_label(label)
-
-    def get_app_button_label(self, app_key):
-        if is_app_installed(app_key):
-            return "Desinstalar " + APPS_DESKTOP[app_key]['name']
-        else:
-            return "Instalar " + APPS_DESKTOP[app_key]['name']
-
 class Aplicacion(Gtk.Application):
     def __init__(self):
         super().__init__(application_id="org.treeoscontrol.app")
@@ -763,7 +771,5 @@ if __name__ == "__main__":
     except IOError:
         print("Otra instancia de TreeOS Control Panel ya est� corriendo.")
         sys.exit(0)
-    if not os.path.exists(BASE_DIR):
-        os.makedirs(BASE_DIR, exist_ok=True)
     app = Aplicacion()
     app.run()
